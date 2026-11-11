@@ -1,0 +1,43 @@
+name: Compila
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, exe: mandelbrot-studio.exe }
+          - { os: windows-latest, target: aarch64-pc-windows-msvc, exe: mandelbrot-studio.exe, cross: true }
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, exe: mandelbrot-studio }
+          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, exe: mandelbrot-studio }
+          - { os: macos-14, target: aarch64-apple-darwin, exe: mandelbrot-studio }
+          - { os: macos-14, target: x86_64-apple-darwin, exe: mandelbrot-studio, cross: true }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Librerie di sistema (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+      - name: Test
+        if: ${{ !matrix.cross }}
+        run: cargo test --release --target ${{ matrix.target }}
+      - name: Compila
+        run: cargo build --release --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mandelbrot-studio-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/${{ matrix.exe }}
+            README.md
+            LICENSE

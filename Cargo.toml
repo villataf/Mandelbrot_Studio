@@ -1,0 +1,38 @@
+[package]
+name = "mandelbrot-studio"
+version = "0.5.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Esploratore dell'insieme di Mandelbrot con calcolo su CPU o GPU, esportazione di immagini e animazioni"
+rust-version = "1.80"
+
+[[bin]]
+name = "mandelbrot-studio"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.31", default-features = false, features = ["default_fonts", "wgpu", "x11", "wayland", "accesskit"] }
+wgpu = "24"
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"
+rayon = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+tiff = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rfd = "0.15"
+dirs = "6"
+
+[dev-dependencies]
+naga = { version = "24", features = ["wgsl-in"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
