@@ -15,7 +15,7 @@ use crate::animation::{Animation, AnimationProject, Easing, Keyframe};
 use crate::compute::gpu::AdapterEntry;
 use crate::compute::{ComputeHub, Engine, FractalParams};
 use crate::export::ImageFormat;
-use crate::flight::Flight;
+use crate::flight::{Flight, ZoomStep};
 use crate::jobs::{self, JobStatus};
 use crate::palette::{colorize, ColorMap, ColorSettings, Lut, Palette};
 use crate::recommend::Recommendation;
@@ -125,9 +125,20 @@ pub struct MandelApp {
     gpu_ready_seen: bool,
     /// The zoom-out/zoom-in transition in progress, and when it started.
     flight: Option<(Flight, Instant)>,
+    /// A short animated zoom in progress (wheel, keys, double click, rectangle).
+    zoom_step: Option<(ZoomStep, Instant)>,
+    /// Size of the view in points (the unit of mouse positions).
+    view_points: (f64, f64),
     /// The person dragged or zoomed with the mouse in this frame.
     moved: bool,
 }
+
+/// Speed of transitions and animated zooms (fixed at what the old speed slider called 4).
+const TRANSITION_SPEED: f64 = 4.0;
+/// Length of an animated zoom step at speed 1 (mandelbrot.site uses 0.25 s).
+const ZOOM_STEP_SECS: f64 = 0.28;
+/// Wheel zooms follow the wheel more closely.
+const WHEEL_STEP_SECS: f64 = 0.16;
 
 impl MandelApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
@@ -212,6 +223,8 @@ impl MandelApp {
             show_about: false,
             gpu_ready_seen: false,
             flight: None,
+            zoom_step: None,
+            view_points: (800.0, 600.0),
             moved: false,
             s,
         }
@@ -234,6 +247,7 @@ impl MandelApp {
         if self.flight.take().is_some() {
             debug_log("transizione interrotta");
         }
+        self.zoom_step = None;
         if self.preview.is_some() {
             self.preview = None;
             self.preview_color = None;
@@ -248,7 +262,7 @@ impl MandelApp {
         let iterations = iterations.clamp(1, MAX_ITERATIONS);
         if self.s.animate_moves && view != self.s.view {
             let aspect = self.view_px.0 as f64 / self.view_px.1.max(1) as f64;
-            let f = Flight::new(self.s.view, view, self.s.iterations, iterations, aspect, self.s.flight_speed);
+            let f = Flight::new(self.s.view, view, self.s.iterations, iterations, aspect, TRANSITION_SPEED);
             debug_log(&format!("transizione iniziata: {:.1} s", f.duration));
             self.flight = Some((f, Instant::now()));
         } else {
@@ -277,16 +291,61 @@ impl MandelApp {
         self.go_to(View::default(), it);
     }
 
-    fn zoom_center(&mut self, factor: f64) {
+    /// Where the view is heading: the end of the zoom step in progress, or the view itself.
+    /// Quick repeated zooms (several wheel notches, + pressed twice) add up from there.
+    fn target_view(&self) -> View {
+        self.zoom_step.as_ref().map(|(z, _)| z.to).unwrap_or(self.s.view)
+    }
+
+    /// Move to `target` with a short animated zoom (or at once when transitions are off).
+    fn zoom_to(&mut self, target: View, secs: f64) {
+        let from = self.s.view;
         self.navigated();
-        let (w, h) = (self.view_px.0 as f64, self.view_px.1 as f64);
-        self.s.view.zoom_at(w * 0.5, h * 0.5, w, h, factor);
+        if self.s.animate_moves && target != from {
+            let secs = secs / TRANSITION_SPEED;
+            debug_log(&format!("zoom animato: scala {:.3e} → {:.3e}", from.scale, target.scale));
+            self.zoom_step = Some((ZoomStep::new(from, target, secs), Instant::now()));
+        } else {
+            self.s.view = target;
+        }
+    }
+
+    /// Zoom about the point under pixel (`px`, `py`) of the view (in points), by `factor`.
+    fn zoom_about(&mut self, px: f64, py: f64, factor: f64, secs: f64) {
+        let (w, h) = self.view_points;
+        // The point under the cursor now, which stays under it.
+        let (x, y) = self.s.view.pixel_to_complex(px, py, w, h);
+        let base = self.target_view();
+        let mut target = base;
+        target.scale = (base.scale / factor).clamp(crate::view::MIN_SCALE, crate::view::MAX_SCALE);
+        let ps = 2.0 * target.scale / h;
+        target.cx = x - (px - w * 0.5) * ps;
+        target.cy = y + (py - h * 0.5) * ps;
+        target.clamp();
+        self.zoom_to(target, secs);
+    }
+
+    fn advance_zoom_step(&mut self, ctx: &egui::Context) {
+        let Some((z, started)) = &self.zoom_step else { return };
+        let t = started.elapsed().as_secs_f64() / z.duration;
+        self.s.view = z.at(t);
+        if t >= 1.0 {
+            self.zoom_step = None;
+        } else {
+            ctx.request_repaint();
+        }
+    }
+
+    fn zoom_center(&mut self, factor: f64) {
+        let (w, h) = self.view_points;
+        self.zoom_about(w * 0.5, h * 0.5, factor, ZOOM_STEP_SECS);
     }
 
     fn pan_fraction(&mut self, fx: f64, fy: f64) {
-        self.navigated();
-        let h = self.view_px.1 as f64;
-        self.s.view.pan_pixels(-fx * h, -fy * h, h);
+        let h = self.view_points.1;
+        let mut target = self.target_view();
+        target.pan_pixels(-fx * h, -fy * h, h);
+        self.zoom_to(target, ZOOM_STEP_SECS);
     }
 
     fn set_iterations(&mut self, n: u32) {
@@ -670,6 +729,7 @@ impl MandelApp {
                 Key::Escape => {
                     self.selection_start = None;
                     self.flight = None;
+                    self.zoom_step = None;
                     if self.preview.is_some() {
                         self.leave_preview();
                     }
@@ -745,13 +805,6 @@ impl MandelApp {
                 }
                 ui.separator();
                 ui.checkbox(&mut self.s.animate_moves, "Transizione animata tra posizioni");
-                ui.add_enabled(
-                    self.s.animate_moves,
-                    egui::Slider::new(&mut self.s.flight_speed, 0.25..=4.0)
-                        .logarithmic(true)
-                        .fixed_decimals(2)
-                        .text("velocità"),
-                );
             });
             ui.menu_button("Aiuto", |ui| {
                 if ui.button("Comandi mouse e tastiera   F1").clicked() {
@@ -772,12 +825,17 @@ impl MandelApp {
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let night = ui.visuals().dark_mode;
-                let (icon, tip) = if night {
-                    ("☀", "Modalità giorno")
+                // A bigger, coloured icon that stands out from the menu text: a yellow sun
+                // in night mode, a deep blue moon in day mode.
+                let (icon, tip, color) = if night {
+                    ("☀", "Passa alla modalità giorno", egui::Color32::from_rgb(255, 205, 40))
                 } else {
-                    ("🌙", "Modalità notte")
+                    ("🌙", "Passa alla modalità notte", egui::Color32::from_rgb(40, 60, 150))
                 };
-                if ui.button(icon).on_hover_text(tip).clicked() {
+                let button = egui::Button::new(RichText::new(icon).size(22.0).color(color))
+                    .min_size(Vec2::new(34.0, 28.0))
+                    .stroke(egui::Stroke::new(1.5f32, color));
+                if ui.add(button).on_hover_text(tip).clicked() {
                     self.s.theme = if night { Theme::Light } else { Theme::Night };
                     apply_theme(ctx, self.s.theme);
                 }
@@ -879,7 +937,7 @@ impl MandelApp {
     fn schedule_work(&mut self, ctx: &egui::Context) {
         // While things move: half resolution, and each picture is allowed to finish, so the
         // view keeps updating during the movement.
-        let moving = self.playing || self.flight.is_some() || self.moved;
+        let moving = self.playing || self.flight.is_some() || self.zoom_step.is_some() || self.moved;
         self.moved = false;
         let div = if moving { 2 } else { 1 };
         // While moving, a modest number of iterations keeps each picture to a few hundredths
@@ -950,8 +1008,17 @@ impl eframe::App for MandelApp {
 
         self.handle_keys(ctx);
         self.advance_flight(ctx);
+        self.advance_zoom_step(ctx);
 
-        egui::TopBottomPanel::top("menu").show(ctx, |ui| self.menu_bar(ctx, ui));
+        // A taller top strip, with roomier menu and quick buttons.
+        egui::TopBottomPanel::top("menu")
+            .exact_height(38.0)
+            .show(ctx, |ui| {
+                ui.style_mut().spacing.button_padding = Vec2::new(8.0, 5.0);
+                ui.style_mut().spacing.item_spacing.x = 8.0;
+                ui.add_space(5.0);
+                self.menu_bar(ctx, ui);
+            });
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| self.status_bar(ui));
 
         // Side panels fold down to a thin strip with a button to open them again.

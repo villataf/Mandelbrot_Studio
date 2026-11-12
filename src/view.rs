@@ -76,6 +76,7 @@ impl View {
     }
 
     /// Zoom by `factor` (>1 zooms in) keeping the point under (px, py) fixed.
+    #[allow(dead_code)]
     pub fn zoom_at(&mut self, px: f64, py: f64, w: f64, h: f64, factor: f64) {
         let (x, y) = self.pixel_to_complex(px, py, w, h);
         self.scale /= factor;

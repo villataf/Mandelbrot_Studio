@@ -20,10 +20,13 @@ Esploratore dell'insieme di Mandelbrot scritto in Rust, per Windows, Linux e mac
 - **Coordinate**: si possono scrivere a mano, copiare/incollare, salvare e ricaricare da
   file (`.json`, con tutte le cifre) e tenere tra i preferiti. Quando si cambia posizione
   (preferiti, coordinate scritte, keyframe, vista iniziale) la vista "vola": zoom indietro,
-  spostamento e zoom avanti, con velocità regolabile (si può disattivare).
+  spostamento e zoom avanti, a velocità fissa (si può disattivare).
   Il volo segue lo stesso schema di mandelbrot.site: percorso di van Wijk e Nuij (ρ = 1,42),
   0,8 s per unità di percorso, partenza immediata e atterraggio dolce; le immagini
   precedenti restano visibili sotto, in scala, e ogni nuova immagine compare in dissolvenza.
+- **Zoom animato**: rotellina, tasti `+`/`−`, frecce, doppio clic e rettangolo producono
+  uno zoom breve e fluido (circa 0,3 s) che tiene fermo il punto indicato; più scatti
+  rapidi si sommano. Il trascinamento segue il mouse senza ritardo.
 - **Pannelli laterali riducibili** con i pulsanti « e » o con `F2` / `F3`.
 - **Impostazioni**: modalità notte (o chiaro, o come il sistema; anche con il pulsante
   🌙/☀ in alto a destra) e posizione all'apertura (l'ultima usata o quella iniziale).

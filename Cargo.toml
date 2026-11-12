@@ -1,6 +1,6 @@
 [package]
 name = "mandelbrot-studio"
-version = "0.5.0"
+version = "0.6.1"
 edition = "2021"
 license = "GPL-3.0-or-later"
 description = "Esploratore dell'insieme di Mandelbrot con calcolo su CPU o GPU, esportazione di immagini e animazioni"

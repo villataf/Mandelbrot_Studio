@@ -100,9 +100,66 @@ impl Flight {
     }
 }
 
+/// A short animated zoom (mouse wheel, + and − keys, double click, rectangle), like the
+/// 0.25-second zoom animation of mandelbrot.site: the scale moves evenly in log scale and
+/// the centre moves so that the point being zoomed on stays where it is on screen.
+#[derive(Clone, Debug)]
+pub struct ZoomStep {
+    pub from: View,
+    pub to: View,
+    pub duration: f64,
+}
+
+impl ZoomStep {
+    pub fn new(from: View, to: View, duration: f64) -> ZoomStep {
+        ZoomStep { from, to, duration: duration.max(0.01) }
+    }
+
+    /// The view at `t` (0..1 of the duration).
+    pub fn at(&self, t: f64) -> View {
+        if t >= 1.0 {
+            return self.to;
+        }
+        let e = ease(t);
+        let (s0, s1) = (self.from.scale, self.to.scale);
+        let scale = (s0.ln() + (s1.ln() - s0.ln()) * e).exp();
+        // A zoom about a fixed point moves the centre in proportion to the change of scale;
+        // a pure move (same scale) follows the easing.
+        let w = if (s0 - s1).abs() > 1e-9 * s0.max(s1) {
+            ((s0 - scale) / (s0 - s1)).clamp(0.0, 1.0)
+        } else {
+            e
+        };
+        let mut v = View {
+            cx: self.from.cx + (self.to.cx - self.from.cx) * w,
+            cy: self.from.cy + (self.to.cy - self.from.cy) * w,
+            scale,
+        };
+        v.clamp();
+        v
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zoom_step_keeps_the_fixed_point() {
+        // Zoom 4× about the point under pixel (100, 50) of an 800×600 view.
+        let from = View { cx: -0.5, cy: 0.0, scale: 1.0 };
+        let mut to = from;
+        to.zoom_at(100.0, 50.0, 800.0, 600.0, 4.0);
+        let fixed = from.pixel_to_complex(100.0, 50.0, 800.0, 600.0);
+        let z = ZoomStep::new(from, to, 0.25);
+        for t in [0.0, 0.3, 0.6, 0.9, 1.0] {
+            let v = z.at(t);
+            let p = v.pixel_to_complex(100.0, 50.0, 800.0, 600.0);
+            assert!((p.0 - fixed.0).abs() < 1e-9 && (p.1 - fixed.1).abs() < 1e-9, "t={t} {v:?}");
+        }
+        assert_eq!(z.at(1.0), to);
+        assert!(z.at(0.5).scale < 1.0 && z.at(0.5).scale > 0.25);
+    }
 
     fn close(a: f64, b: f64, tol: f64) -> bool {
         (a - b).abs() <= tol * a.abs().max(b.abs()).max(1e-300)

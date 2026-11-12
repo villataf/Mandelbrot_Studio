@@ -69,6 +69,7 @@ impl ViewWorker {
             std::thread::Builder::new()
                 .name("view-render".into())
                 .spawn(move || {
+                    let mut was_moving = false;
                     while let Ok(mut job) = job_rx.recv() {
                         while let Ok(newer) = job_rx.try_recv() {
                             job = newer;
@@ -81,9 +82,12 @@ impl ViewWorker {
                         let cancel = || abort_below.load(Ordering::SeqCst) > gen;
                         let cost = req.w as f64 * req.h as f64 * req.params.max_iter as f64;
                         let mut passes = vec![];
-                        if !moving && cost > 4.0e7 && req.w >= 64 && req.h >= 64 {
+                        // Right after a movement the half-resolution picture is already on
+                        // screen: a coarser rough pass would only blur it for a moment.
+                        if !moving && !was_moving && cost > 4.0e7 && req.w >= 64 && req.h >= 64 {
                             passes.push(4u32);
                         }
+                        was_moving = moving;
                         passes.push(1u32);
                         for div in passes {
                             let (w, h) = ((req.w / div).max(1), (req.h / div).max(1));

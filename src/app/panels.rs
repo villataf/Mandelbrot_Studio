@@ -96,17 +96,8 @@ impl MandelApp {
                 self.copy_coordinates(ui.ctx());
             }
         });
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut self.s.animate_moves, "Transizione animata")
-                .on_hover_text("Quando cambi posizione: zoom indietro, spostamento e zoom avanti");
-            ui.add_enabled(
-                self.s.animate_moves,
-                egui::Slider::new(&mut self.s.flight_speed, 0.25..=4.0)
-                    .logarithmic(true)
-                    .fixed_decimals(2)
-                    .text("velocità"),
-            );
-        });
+        ui.checkbox(&mut self.s.animate_moves, "Transizione animata")
+            .on_hover_text("Quando cambi posizione o zoomi: movimento fluido invece di un salto");
         if go {
             match (
                 parse_number(&self.edit_re),

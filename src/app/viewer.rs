@@ -5,6 +5,7 @@ use std::sync::atomic::Ordering;
 use eframe::egui::{self, Color32, PointerButton, Pos2, Rect, Sense, Stroke, Vec2};
 
 use super::MandelApp;
+use crate::view::View;
 
 impl MandelApp {
     pub(super) fn viewer(&mut self, ui: &mut egui::Ui) {
@@ -23,23 +24,26 @@ impl MandelApp {
             self.s.view.pixel_to_complex(x, y, w, h)
         });
 
-        let mut changed = false;
-        let view = &mut self.s.view;
+        self.view_points = (w, h);
+
+        // Zooms are animated (a short eased zoom, as on mandelbrot.site); dragging follows
+        // the mouse at once.
         if resp.hovered() {
             let (scroll, pinch) = ui.input(|i| (i.raw_scroll_delta.y, i.zoom_delta()));
             let factor = (scroll as f64 * 0.0045).exp() * pinch as f64;
             if (factor - 1.0).abs() > 1e-6 {
                 if let Some(p) = resp.hover_pos() {
                     let (x, y) = local(p);
-                    view.zoom_at(x, y, w, h, factor);
-                    changed = true;
+                    self.zoom_about(x, y, factor, super::WHEEL_STEP_SECS);
                 }
             }
         }
+        let mut changed = false;
         if resp.dragged_by(PointerButton::Primary) {
             let d = resp.drag_delta();
             if d != Vec2::ZERO {
-                view.pan_pixels(d.x as f64, d.y as f64, h);
+                self.zoom_step = None;
+                self.s.view.pan_pixels(d.x as f64, d.y as f64, h);
                 changed = true;
             }
         }
@@ -55,13 +59,11 @@ impl MandelApp {
             if let Some(sel) = selection {
                 if sel.width() > 6.0 && sel.height() > 6.0 {
                     let (sx, sy) = local(sel.center());
-                    let (x, y) = view.pixel_to_complex(sx, sy, w, h);
+                    let (x, y) = self.s.view.pixel_to_complex(sx, sy, w, h);
                     let f = (sel.width() as f64 / w).max(sel.height() as f64 / h);
-                    view.cx = x;
-                    view.cy = y;
-                    view.scale *= f;
-                    view.clamp();
-                    changed = true;
+                    let mut target = View { cx: x, cy: y, scale: self.s.view.scale * f };
+                    target.clamp();
+                    self.zoom_to(target, super::ZOOM_STEP_SECS * 1.6);
                 }
             }
             self.selection_start = None;
@@ -69,29 +71,25 @@ impl MandelApp {
         if resp.double_clicked_by(PointerButton::Primary) {
             if let Some(p) = resp.interact_pointer_pos() {
                 let (x, y) = local(p);
-                let (cx, cy) = view.pixel_to_complex(x, y, w, h);
-                view.cx = cx;
-                view.cy = cy;
-                view.scale /= 2.0;
-                view.clamp();
-                changed = true;
+                let (cx, cy) = self.s.view.pixel_to_complex(x, y, w, h);
+                let mut target = View { cx, cy, scale: self.target_view().scale / 2.0 };
+                target.clamp();
+                self.zoom_to(target, super::ZOOM_STEP_SECS);
             }
         }
         if resp.double_clicked_by(PointerButton::Secondary) {
             if let Some(p) = resp.interact_pointer_pos() {
                 let (x, y) = local(p);
-                view.zoom_at(x, y, w, h, 0.5);
-                changed = true;
+                self.zoom_about(x, y, 0.5, super::ZOOM_STEP_SECS);
             }
         }
         if resp.clicked_by(PointerButton::Middle) {
             if let Some(p) = resp.interact_pointer_pos() {
                 let (x, y) = local(p);
-                let (cx, cy) = view.pixel_to_complex(x, y, w, h);
-                view.cx = cx;
-                view.cy = cy;
-                view.clamp();
-                changed = true;
+                let (cx, cy) = self.s.view.pixel_to_complex(x, y, w, h);
+                let mut target = View { cx, cy, scale: self.target_view().scale };
+                target.clamp();
+                self.zoom_to(target, super::ZOOM_STEP_SECS);
             }
         }
         if changed {

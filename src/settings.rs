@@ -145,8 +145,6 @@ pub struct AppSettings {
     pub show_help_on_start: bool,
     /// Fly (zoom out, travel, zoom in) when jumping to another position.
     pub animate_moves: bool,
-    /// Speed of those flights (1 = normal).
-    pub flight_speed: f64,
     pub show_left_panel: bool,
     pub show_right_panel: bool,
     /// Where the program opens: the last position or the starting view.
@@ -246,7 +244,6 @@ impl Default for AppSettings {
             last_folder: None,
             show_help_on_start: true,
             animate_moves: true,
-            flight_speed: 1.0,
             show_left_panel: true,
             show_right_panel: true,
             start_at: StartAt::LastPosition,
